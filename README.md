@@ -1,7 +1,7 @@
-AQEV2FW
+AQEV2FW_PM
 =======
 
-The baseline code for Air Quality Egg version 2 WildFire firmware
+The baseline code for Air Quality Egg version 2 WildFire firmware for Particulate Matter (PM)
 
 Upstream Repository: https://github.com/WickedDevice/AQEV2FW.git
 
