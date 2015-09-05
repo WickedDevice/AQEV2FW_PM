@@ -8,8 +8,6 @@
 #include <Time.h>
 #include <TinyWatchdog.h>
 #include <SHT25.h>
-#include <MCP342x.h>
-#include <LMP91000.h>
 #include <WildFire_SPIFlash.h>
 #include <Time.h>
 #include <CapacitiveSensor.h>
@@ -34,8 +32,6 @@
 WildFire wf;
 WildFire_CC3000 cc3000;
 TinyWatchdog tinywdt;
-LMP91000 lmp91000;
-MCP342x adc;
 SHT25 sht25;
 WildFire_SPIFlash flash;
 CapacitiveSensor touch = CapacitiveSensor(A0, A1);
@@ -66,14 +62,12 @@ float reported_humidity_offset_percent = 0.0f;
 
 float temperature_degc = 0.0f;
 float relative_humidity_percent = 0.0f;
-float no2_ppb = 0.0f;
-float co_ppm = 0.0f;
+float pm_micrograms_per_cubic_meter = 0.0f;
 
 #define MAX_SAMPLE_BUFFER_DEPTH (240) // 20 minutes @ 5 second resolution
-#define NO2_SAMPLE_BUFFER         (0)
-#define CO_SAMPLE_BUFFER          (1)
-#define TEMPERATURE_SAMPLE_BUFFER (2)
-#define HUMIDITY_SAMPLE_BUFFER    (3)
+#define PM_SAMPLE_BUFFER         (0)
+#define TEMPERATURE_SAMPLE_BUFFER (1)
+#define HUMIDITY_SAMPLE_BUFFER    (2)
 float sample_buffer[4][MAX_SAMPLE_BUFFER_DEPTH] = {0};
 uint16_t sample_buffer_idx = 0;
 
@@ -87,16 +81,10 @@ float touch_sample_buffer[TOUCH_SAMPLE_BUFFER_DEPTH] = {0};
 #define LCD_ERROR_MESSAGE_DELAY   (4000)
 #define LCD_SUCCESS_MESSAGE_DELAY (2000)
 
-boolean no2_ready = false;
-boolean co_ready = false;
 boolean temperature_ready = false;
 boolean humidity_ready = false;
 
 boolean init_sht25_ok = false;
-boolean init_co_afe_ok = false;
-boolean init_no2_afe_ok = false;
-boolean init_co_adc_ok = false;
-boolean init_no2_adc_ok = false;
 boolean init_spi_flash_ok = false;
 boolean init_cc3000_ok = false;
 boolean init_sdcard_ok = false;
@@ -135,12 +123,12 @@ uint8_t mode = MODE_OPERATIONAL;
 #define EEPROM_STATIC_GATEWAY     (EEPROM_STATIC_NETMASK - 4)     // static default gateway ip address, 4 bytes
 #define EEPROM_STATIC_DNS         (EEPROM_STATIC_GATEWAY - 4)     // static dns server ip address, 4 bytes
 #define EEPROM_MQTT_PASSWORD      (EEPROM_STATIC_DNS - 32)        // password for mqtt server, up to 32 characters (one of which is a null terminator)
-#define EEPROM_NO2_SENSITIVITY    (EEPROM_MQTT_PASSWORD - 4)      // float value, 4-bytes, the sensitivity from the sticker
-#define EEPROM_NO2_CAL_SLOPE      (EEPROM_NO2_SENSITIVITY - 4)    // float value, 4-bytes, the slope applied to the sensor
-#define EEPROM_NO2_CAL_OFFSET     (EEPROM_NO2_CAL_SLOPE - 4)      // float value, 4-btyes, the offset applied to the sensor
-#define EEPROM_CO_SENSITIVITY     (EEPROM_NO2_CAL_OFFSET - 4)     // float value, 4-bytes, the sensitivity from the sticker
-#define EEPROM_CO_CAL_SLOPE       (EEPROM_CO_SENSITIVITY - 4)     // float value, 4-bytes, the slope applied to the sensor
-#define EEPROM_CO_CAL_OFFSET      (EEPROM_CO_CAL_SLOPE - 4)       // float value, 4-bytes, the offset applied to the sensor
+#define EEPROM_PM_SENSITIVITY     (EEPROM_MQTT_PASSWORD - 4)      // float value, 4-bytes, the sensitivity from the sticker  [UNUSED]
+#define EEPROM_PM_CAL_SLOPE       (EEPROM_PM_SENSITIVITY - 4)     // float value, 4-bytes, the slope applied to the sensor   [UNUSED] 
+#define EEPROM_PM_CAL_OFFSET      (EEPROM_PM_CAL_SLOPE - 4)       // float value, 4-btyes, the offset applied to the sensor
+#define EEPROM_CO_SENSITIVITY     (EEPROM_PM_CAL_OFFSET - 4)      // float value, 4-bytes, the sensitivity from the sticker  [UNUSED]
+#define EEPROM_CO_CAL_SLOPE       (EEPROM_CO_SENSITIVITY - 4)     // float value, 4-bytes, the slope applied to the sensor   [UNUSED]
+#define EEPROM_CO_CAL_OFFSET      (EEPROM_CO_CAL_SLOPE - 4)       // float value, 4-bytes, the offset applied to the sensor  [UNUSED] 
 #define EEPROM_PRIVATE_KEY        (EEPROM_CO_CAL_OFFSET - 32)     // 32-bytes of Random Data (256-bits)
 #define EEPROM_MQTT_SERVER_NAME   (EEPROM_PRIVATE_KEY - 32)       // string, the DNS name of the MQTT server (default opensensors.io), up to 32 characters (one of which is a null terminator)
 #define EEPROM_MQTT_USERNAME      (EEPROM_MQTT_SERVER_NAME - 32)  // string, the user name for the MQTT server (default wickeddevice), up to 32 characters (one of which is a null terminator)
@@ -169,10 +157,10 @@ uint8_t mode = MODE_OPERATIONAL;
 #define EEPROM_BACKUP_PRIVATE_KEY        (EEPROM_BACKUP_CO_CAL_OFFSET + 4)
 #define EEPROM_BACKUP_CO_CAL_OFFSET      (EEPROM_BACKUP_CO_CAL_SLOPE + 4)
 #define EEPROM_BACKUP_CO_CAL_SLOPE       (EEPROM_BACKUP_CO_SENSITIVITY + 4)
-#define EEPROM_BACKUP_CO_SENSITIVITY     (EEPROM_BACKUP_NO2_CAL_OFFSET + 4)
-#define EEPROM_BACKUP_NO2_CAL_OFFSET     (EEPROM_BACKUP_NO2_CAL_SLOPE + 4)
-#define EEPROM_BACKUP_NO2_CAL_SLOPE      (EEPROM_BACKUP_NO2_SENSITIVITY + 4)
-#define EEPROM_BACKUP_NO2_SENSITIVITY    (EEPROM_BACKUP_MQTT_PASSWORD + 32)
+#define EEPROM_BACKUP_CO_SENSITIVITY     (EEPROM_BACKUP_PM_CAL_OFFSET + 4)
+#define EEPROM_BACKUP_PM_CAL_OFFSET      (EEPROM_BACKUP_PM_CAL_SLOPE + 4)
+#define EEPROM_BACKUP_PM_CAL_SLOPE       (EEPROM_BACKUP_PM_SENSITIVITY + 4)
+#define EEPROM_BACKUP_PM_SENSITIVITY    (EEPROM_BACKUP_MQTT_PASSWORD + 32)
 #define EEPROM_BACKUP_MQTT_PASSWORD      (EEPROM_BACKUP_MAC_ADDRESS + 6)
 #define EEPROM_BACKUP_MAC_ADDRESS        (EEPROM_BACKUP_CHECK + 2) // backup parameters are added here offset from the EEPROM_CRC_CHECKSUM
 #define EEPROM_BACKUP_CHECK              (EEPROM_CRC_CHECKSUM + 2) // 2-byte value with various bits set if backup has ever happened
@@ -188,7 +176,7 @@ uint8_t mode = MODE_OPERATIONAL;
 // backup status bits
 #define BACKUP_STATUS_MAC_ADDRESS_BIT             (7)
 #define BACKUP_STATUS_MQTT_PASSSWORD_BIT          (6)
-#define BACKUP_STATUS_NO2_CALIBRATION_BIT         (5)
+#define BACKUP_STATUS_PM_CALIBRATION_BIT         (5)
 #define BACKUP_STATUS_CO_CALIBRATION_BIT          (4)
 #define BACKUP_STATUS_PRIVATE_KEY_BIT             (3)
 #define BACKUP_STATUS_TEMPERATURE_CALIBRATION_BIT (2)
@@ -218,12 +206,7 @@ void set_mqtt_username(char * arg);
 void set_mqtt_client_id(char * arg);
 void set_mqtt_authentication(char * arg);
 void backup(char * arg);
-void set_no2_slope(char * arg);
-void set_no2_offset(char * arg);
-void set_no2_sensitivity(char * arg);
-void set_co_slope(char * arg);
-void set_co_offset(char * arg);
-void set_co_sensitivity(char * arg);
+void set_pm_offset(char * arg);
 void set_reported_temperature_offset(char * arg);
 void set_reported_humidity_offset(char * arg);
 void set_private_key(char * arg);
@@ -276,12 +259,7 @@ char * commands[] = {
   "mqttauth   ",
   "updatesrv  ",
   "backup     ",
-  "no2_sen    ",
-  "no2_slope  ",
-  "no2_off    ",
-  "co_sen     ",
-  "co_slope   ",
-  "co_off     ",
+  "pm_off     ",
   "temp_off   ",
   "hum_off    ",
   "key        ",
@@ -318,12 +296,7 @@ void (*command_functions[])(char * arg) = {
   set_mqtt_authentication,
   set_update_server_name,
   backup,
-  set_no2_sensitivity,
-  set_no2_slope,
   set_no2_offset,
-  set_co_sensitivity,
-  set_co_slope,
-  set_co_offset,
   set_reported_temperature_offset,
   set_reported_humidity_offset,
   set_private_key,
@@ -675,7 +648,7 @@ void setup() {
   
   if(mode == SUBMODE_NORMAL){
     setLCD_P(PSTR("TEMP ---  RH ---"
-                  "NO2  ---  CO ---"));           
+                  "PM   ---        "));           
     SUCCESS_MESSAGE_DELAY();                      
   }
 }
@@ -840,8 +813,6 @@ void initializeHardware(void) {
   // Initialize slot select pins
   Serial.print(F("Info: Slot Select Pins Initialization..."));
   pinMode(7, OUTPUT);
-  pinMode(9, OUTPUT);
-  pinMode(10, OUTPUT);
   selectNoSlot();
   Serial.println(F("OK."));
   
@@ -878,57 +849,6 @@ void initializeHardware(void) {
   else {
     Serial.println(F("Failed."));
     init_sht25_ok = false;
-  }
-
-  // Initialize NO2 Sensor
-  Serial.print(F("Info: NO2 Sensor AFE Initialization..."));
-  selectSlot2();
-  if (lmp91000.configure(
-        LMP91000_TIA_GAIN_350K | LMP91000_RLOAD_10OHM,
-        LMP91000_REF_SOURCE_EXT | LMP91000_INT_Z_67PCT
-        | LMP91000_BIAS_SIGN_NEG | LMP91000_BIAS_8PCT,
-        LMP91000_FET_SHORT_DISABLED | LMP91000_OP_MODE_AMPEROMETRIC)) {
-    Serial.println(F("OK."));
-    init_no2_afe_ok = true;
-  }
-  else {
-    Serial.println(F("Failed."));
-    init_no2_afe_ok = false;
-  }
-
-  Serial.print(F("Info: NO2 Sensor ADC Initialization..."));
-  if(MCP342x::errorNone == adc.convert(MCP342x::channel1, MCP342x::oneShot, MCP342x::resolution16, MCP342x::gain1)){
-    Serial.println(F("OK."));
-    init_no2_adc_ok = true;    
-  }
-  else{
-    Serial.println(F("Failed."));
-    init_no2_adc_ok = false;    
-  }
-
-  Serial.print(F("Info: CO Sensor AFE Initialization..."));
-  selectSlot1();
-  if (lmp91000.configure(
-        LMP91000_TIA_GAIN_350K | LMP91000_RLOAD_10OHM,
-        LMP91000_REF_SOURCE_EXT | LMP91000_INT_Z_20PCT
-        | LMP91000_BIAS_SIGN_POS | LMP91000_BIAS_1PCT,
-        LMP91000_FET_SHORT_DISABLED | LMP91000_OP_MODE_AMPEROMETRIC)) {
-    Serial.println(F("OK."));
-    init_co_afe_ok = true;
-  }
-  else {
-    Serial.println(F("Failed."));
-    init_co_afe_ok = false;
-  }
-  
-  Serial.print(F("Info: CO Sensor ADC Initialization..."));
-  if(MCP342x::errorNone == adc.convert(MCP342x::channel1, MCP342x::oneShot, MCP342x::resolution16, MCP342x::gain1)){
-    Serial.println(F("OK."));
-    init_co_adc_ok = true;    
-  }
-  else{
-    Serial.println(F("Failed."));
-    init_co_adc_ok = false;    
   }
 
   // Initialize SD card
@@ -1006,9 +926,9 @@ void initializeNewConfigSettings(void){
 
   // the following two blocks of code are a 'hot-fix' to the slope calculation, 
   // only apply it if the slope is not already self consistent with the sensitivity
-  float sensitivity = eeprom_read_float((const float *) EEPROM_NO2_SENSITIVITY);  
+  float sensitivity = eeprom_read_float((const float *) EEPROM_PM_SENSITIVITY);  
   float calculated_slope = convert_no2_sensitivity_to_slope(sensitivity);
-  float stored_slope = eeprom_read_float((const float *) EEPROM_NO2_CAL_SLOPE);
+  float stored_slope = eeprom_read_float((const float *) EEPROM_PM_CAL_SLOPE);
   if(calculated_slope != stored_slope){ 
     if(!in_config_mode){
       configInject("aqe\r");
@@ -1918,24 +1838,6 @@ void print_eeprom_value(char * arg) {
   else if (strncmp(arg, "ipmode", 6) == 0) {
     print_eeprom_ipmode();
   }
-  else if (strncmp(arg, "no2_sen", 7) == 0) {
-    print_eeprom_float((const float *) EEPROM_NO2_SENSITIVITY);
-  }
-  else if (strncmp(arg, "no2_slope", 9) == 0) {
-    print_eeprom_float((const float *) EEPROM_NO2_CAL_SLOPE);
-  }
-  else if (strncmp(arg, "no2_off", 7) == 0) {
-    print_eeprom_float((const float *) EEPROM_NO2_CAL_OFFSET);
-  }
-  else if (strncmp(arg, "co_sen", 6) == 0) {
-    print_eeprom_float((const float *) EEPROM_CO_SENSITIVITY);
-  }
-  else if (strncmp(arg, "co_slope", 8) == 0) {
-    print_eeprom_float((const float *) EEPROM_CO_CAL_SLOPE);
-  }
-  else if (strncmp(arg, "co_off", 6) == 0) {
-    print_eeprom_float((const float *) EEPROM_CO_CAL_OFFSET);
-  }
   else if (strncmp(arg, "temp_off", 8) == 0) {
     print_eeprom_float((const float *) EEPROM_TEMPERATURE_OFFSET);
   }
@@ -2055,12 +1957,12 @@ void print_eeprom_value(char * arg) {
     Serial.println(F(" | Sensor Calibrations:                                        |"));
     Serial.println(F(" +-------------------------------------------------------------+"));
 
-    print_label_with_star_if_not_backed_up("NO2 Sensitivity [nA/ppm]: ", BACKUP_STATUS_NO2_CALIBRATION_BIT);
-    print_eeprom_float((const float *) EEPROM_NO2_SENSITIVITY);
-    print_label_with_star_if_not_backed_up("NO2 Slope [ppb/V]: ", BACKUP_STATUS_NO2_CALIBRATION_BIT);
-    print_eeprom_float((const float *) EEPROM_NO2_CAL_SLOPE);
-    print_label_with_star_if_not_backed_up("NO2 Offset [V]: ", BACKUP_STATUS_NO2_CALIBRATION_BIT);
-    print_eeprom_float((const float *) EEPROM_NO2_CAL_OFFSET);
+    print_label_with_star_if_not_backed_up("NO2 Sensitivity [nA/ppm]: ", BACKUP_STATUS_PM_CALIBRATION_BIT);
+    print_eeprom_float((const float *) EEPROM_PM_SENSITIVITY);
+    print_label_with_star_if_not_backed_up("NO2 Slope [ppb/V]: ", BACKUP_STATUS_PM_CALIBRATION_BIT);
+    print_eeprom_float((const float *) EEPROM_PM_CAL_SLOPE);
+    print_label_with_star_if_not_backed_up("NO2 Offset [V]: ", BACKUP_STATUS_PM_CALIBRATION_BIT);
+    print_eeprom_float((const float *) EEPROM_PM_CAL_OFFSET);
 
     print_label_with_star_if_not_backed_up("CO Sensitivity [nA/ppm]: ", BACKUP_STATUS_CO_CALIBRATION_BIT);
     print_eeprom_float((const float *) EEPROM_CO_SENSITIVITY);
@@ -2263,18 +2165,18 @@ void restore(char * arg) {
     eeprom_write_block(tmp, (void *) EEPROM_PRIVATE_KEY, 32);
   }
   else if (strncmp("no2", arg, 6) == 0) {
-    if (!BIT_IS_CLEARED(backup_check, BACKUP_STATUS_NO2_CALIBRATION_BIT)) {
+    if (!BIT_IS_CLEARED(backup_check, BACKUP_STATUS_PM_CALIBRATION_BIT)) {
       Serial.println(F("Error: NO2 calibration must be backed up  "));
       Serial.println(F("       prior to executing a 'restore'."));
       return;
     }
 
-    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_NO2_SENSITIVITY, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_NO2_SENSITIVITY, 4);
-    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_NO2_CAL_SLOPE, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_NO2_CAL_SLOPE, 4);
-    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_NO2_CAL_OFFSET, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_NO2_CAL_OFFSET, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_PM_SENSITIVITY, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_PM_SENSITIVITY, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_PM_CAL_SLOPE, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_PM_CAL_SLOPE, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_BACKUP_PM_CAL_OFFSET, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_PM_CAL_OFFSET, 4);
   }
   else if (strncmp("co", arg, 5) == 0) {
     if (!BIT_IS_CLEARED(backup_check, BACKUP_STATUS_CO_CALIBRATION_BIT)) {
@@ -3289,15 +3191,15 @@ void backup(char * arg) {
     }
   }
   else if (strncmp("no2", arg, 3) == 0) {
-    eeprom_read_block(tmp, (const void *) EEPROM_NO2_SENSITIVITY, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_NO2_SENSITIVITY, 4);
-    eeprom_read_block(tmp, (const void *) EEPROM_NO2_CAL_SLOPE, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_NO2_CAL_SLOPE, 4);
-    eeprom_read_block(tmp, (const void *) EEPROM_NO2_CAL_OFFSET, 4);
-    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_NO2_CAL_OFFSET, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_PM_SENSITIVITY, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_PM_SENSITIVITY, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_PM_CAL_SLOPE, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_PM_CAL_SLOPE, 4);
+    eeprom_read_block(tmp, (const void *) EEPROM_PM_CAL_OFFSET, 4);
+    eeprom_write_block(tmp, (void *) EEPROM_BACKUP_PM_CAL_OFFSET, 4);
 
-    if (!BIT_IS_CLEARED(backup_check, BACKUP_STATUS_NO2_CALIBRATION_BIT)) {
-      CLEAR_BIT(backup_check, BACKUP_STATUS_NO2_CALIBRATION_BIT);
+    if (!BIT_IS_CLEARED(backup_check, BACKUP_STATUS_PM_CALIBRATION_BIT)) {
+      CLEAR_BIT(backup_check, BACKUP_STATUS_PM_CALIBRATION_BIT);
       eeprom_write_word((uint16_t *) EEPROM_BACKUP_CHECK, backup_check);
     }
   }
@@ -3404,16 +3306,16 @@ float convert_no2_sensitivity_to_slope(float sensitivity) {
 
 // sets both sensitivity and slope
 void set_no2_sensitivity(char * arg) {
-  set_float_param(arg, (float *) EEPROM_NO2_SENSITIVITY, 0);
-  set_float_param(arg, (float *) EEPROM_NO2_CAL_SLOPE, convert_no2_sensitivity_to_slope);
+  set_float_param(arg, (float *) EEPROM_PM_SENSITIVITY, 0);
+  set_float_param(arg, (float *) EEPROM_PM_CAL_SLOPE, convert_no2_sensitivity_to_slope);
 }
 
 void set_no2_slope(char * arg) {
-  set_float_param(arg, (float *) EEPROM_NO2_CAL_SLOPE, 0);
+  set_float_param(arg, (float *) EEPROM_PM_CAL_SLOPE, 0);
 }
 
 void set_no2_offset(char * arg) {
-  set_float_param(arg, (float *) EEPROM_NO2_CAL_OFFSET, 0);
+  set_float_param(arg, (float *) EEPROM_PM_CAL_OFFSET, 0);
 }
 
 void set_reported_temperature_offset(char * arg) {
@@ -3537,16 +3439,6 @@ void selectNoSlot(void) {
   digitalWrite(7, LOW);
   digitalWrite(9, LOW);
   digitalWrite(10, LOW);
-}
-
-void selectSlot1(void) {
-  selectNoSlot();
-  digitalWrite(10, HIGH);
-}
-
-void selectSlot2(void) {
-  selectNoSlot();
-  digitalWrite(9, HIGH);
 }
 
 void selectSlot3(void){
@@ -4265,46 +4157,19 @@ uint32_t arrayToCC3000Ip(uint8_t * ip_array){
 /****** ADC SUPPORT FUNCTIONS ******/
 // returns the measured voltage in Volts
 // 62.5 microvolts resolution in 16-bit mode
-boolean burstSampleADC(float * result){
+boolean burstSampleADC(int adcChannel, float * result){
   #define NUM_SAMPLES_PER_BURST (8)
-
-  // autoprobe to find out which address the ADC is at in this slot
-  static uint8_t viable_addresses[8] = {0};
-  static boolean first_access = true;
-  if(first_access){
-    first_access = false;
-    // viable addresses for MCP3421 are 0x68...0x6F
-    for(uint8_t ii = 0; ii < 8; ii++){
-      viable_addresses[ii] = 0x68 + ii;
-    }
-  }
-
-  adc.autoprobe(viable_addresses, 8);
   
-  MCP342x::Config status;
-  int32_t burst_sample_total = 0;
-  uint8_t num_samples = 0;
+  int32_t burst_sample_total = 0;  
   int32_t value = 0;
-  for(uint8_t ii = 0; ii < NUM_SAMPLES_PER_BURST; ii++){    
-    uint8_t err = adc.convertAndRead(MCP342x::channel1, MCP342x::oneShot, 
-      MCP342x::resolution16, MCP342x::gain1, 75000, value, status);          
-    if(err == 0){
-      burst_sample_total += value;
-      num_samples++;
-    }
-    else{  
-      Serial.print(F("Error: ADC Read Error ["));    
-      Serial.print((uint32_t) err, HEX); 
-      Serial.println(F("]"));
-    }
+  for(uint8_t ii = 0; ii < NUM_SAMPLES_PER_BURST; ii++){        
+    value = analogRead(adcChannel);
+    burst_sample_total += value;
   }
+  const float adc_resolution_volts_per_lsb = (5.0f / 1024.0f);
+  *result = (adc_resolution_volts_per_lsb * burst_sample_total) / NUM_SAMPLES_PER_BURST;  
   
-  if(num_samples > 0){
-    *result = (62.5e-6f * burst_sample_total) / num_samples;  
-    return true;
-  }
-
-  return false;
+  return true;
 }
 
 /****** MQTT SUPPORT FUNCTIONS ******/
@@ -4606,29 +4471,14 @@ void addSample(uint8_t sample_type, float value){
   }
 }
 
-void collectNO2(void){
-  float raw_value = 0.0f;
-  
-  if(init_no2_afe_ok && init_no2_adc_ok){
-    selectSlot2();  
-    if(burstSampleADC(&raw_value)){      
-      addSample(NO2_SAMPLE_BUFFER, raw_value);
-      if(sample_buffer_idx == (sample_buffer_depth - 1)){
-        no2_ready = true;
-      }
-    }
-  }
-    
-  selectNoSlot(); 
-}
 
-void collectCO(void ){  
+void collectPM(void ){  
   float raw_value = 0.0f;
   
   if(init_co_afe_ok && init_co_adc_ok){
     selectSlot1();  
     if(burstSampleADC(&raw_value)){   
-      addSample(CO_SAMPLE_BUFFER, raw_value);      
+      addSample(PM_SAMPLE_BUFFER, raw_value);      
       if(sample_buffer_idx == (sample_buffer_depth - 1)){
         co_ready = true;
       }      
@@ -4672,8 +4522,8 @@ void no2_convert_from_volts_to_ppb(float volts, float * converted_value, float *
   float temperature_compensated_slope = 0.0f;
   if(first_access){
     // NO2 has negative slope in circuit, more negative voltages correspond to higher levels of NO2
-    no2_slope_ppb_per_volt = eeprom_read_float((const float *) EEPROM_NO2_CAL_SLOPE); 
-    no2_zero_volts = eeprom_read_float((const float *) EEPROM_NO2_CAL_OFFSET);
+    no2_slope_ppb_per_volt = eeprom_read_float((const float *) EEPROM_PM_CAL_SLOPE); 
+    no2_zero_volts = eeprom_read_float((const float *) EEPROM_PM_CAL_OFFSET);
     first_access = false;
   }
 
@@ -4844,7 +4694,7 @@ void co_convert_from_volts_to_ppm(float volts, float * converted_value, float * 
 boolean publishCO(){
   clearTempBuffers();  
   float converted_value = 0.0f, compensated_value = 0.0f;   
-  float co_moving_average = calculateAverage(&(sample_buffer[CO_SAMPLE_BUFFER][0]), sample_buffer_depth);
+  float co_moving_average = calculateAverage(&(sample_buffer[PM_SAMPLE_BUFFER][0]), sample_buffer_depth);
   co_convert_from_volts_to_ppm(co_moving_average, &converted_value, &compensated_value);
   co_ppm = compensated_value;  
   safe_dtostrf(co_moving_average, -8, 5, raw_value_string, 16);
@@ -5158,7 +5008,7 @@ void printCsvDataLine(const char * augmented_header){
   float co_moving_average = 0.0f;
   if(co_ready){    
     float converted_value = 0.0f, compensated_value = 0.0f;   
-    co_moving_average = calculateAverage(&(sample_buffer[CO_SAMPLE_BUFFER][0]), sample_buffer_depth);
+    co_moving_average = calculateAverage(&(sample_buffer[PM_SAMPLE_BUFFER][0]), sample_buffer_depth);
     co_convert_from_volts_to_ppm(co_moving_average, &converted_value, &compensated_value);
     co_ppm = compensated_value;     
     Serial.print(co_ppm, 2);
