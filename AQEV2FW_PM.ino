@@ -96,6 +96,7 @@ float touch_sample_buffer[TOUCH_SAMPLE_BUFFER_DEPTH] = {0};
 boolean temperature_ready = false;
 boolean humidity_ready = false;
 boolean pm_ready = false;
+
 #define PM_ADC_CHANNEL (7)  // NOTE: the particulate sensor analog output has to be soldered directly to the WildFire
 
 boolean init_sht25_ok = false;
@@ -918,7 +919,11 @@ void initializeHardware(void) {
       Serial.println(F("Failed."));
       init_cc3000_ok = false;
     }
-  } 
+  }
+
+  updateLCD("PARTICULATE", 0);
+  updateLCD("MODEL", 1);
+  SUCCESS_MESSAGE_DELAY();
 }
 
 /****** CONFIGURATION SUPPORT FUNCTIONS ******/
