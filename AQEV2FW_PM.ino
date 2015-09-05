@@ -4338,8 +4338,14 @@ void pm_convert_from_volts_to_micrograms_per_cubic_meter(float volts, float * co
 
   // TODO: if we find there are temperature effects to compensate for, calculate parameters for compensation here
 
-  // TODO: apply a formula to convert the voltage to a concentration based on the PPD60PV-T2 datasheet
-  *converted_value = (volts - pm_zero_volts); // not yet implemented
+  // apply a formula to convert the voltage to a concentration based on the PPD60PV-T2 datasheet
+  // derived formula is: ug/m^3 = (1.4916358442 * volts^3) + (0.8263664385 * volts^2) + (13.0459799496 * volts)
+  float offset_corrected_volts = volts - pm_zero_volts;
+  *converted_value = 
+    (powf(offset_corrected_volts, 3) * 1.4916358442f) +
+    (powf(offset_corrected_volts, 2) * 0.8263664385f) +
+    (offset_corrected_volts * 13.0459799496f); 
+    
   if(*converted_value <= 0.0f){
     *converted_value = 0.0f; 
   }
