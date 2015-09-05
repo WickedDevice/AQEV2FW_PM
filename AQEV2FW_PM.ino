@@ -15,6 +15,7 @@
 #include <PubSubClient.h>
 #include <util/crc16.h>
 #include <math.h>
+#include <TinyGPS.h>
 
 // semantic versioning - see http://semver.org/
 #define AQEV2FW_MAJOR_VERSION 2
@@ -44,6 +45,13 @@ WildFire_CC3000_Client wifiClient;
 RTC_DS3231 rtc;
 SdFat SD;
 
+TinyGPS gps;
+Stream * gpsSerial = &Serial1;   // TODO: This will need to be solved if we allocate Serial1 to anything else in the future
+#define GPS_MQTT_STRING_LENGTH (128)
+#define GPS_CSV_STRING_LENGTH (64)
+char gps_mqtt_string[GPS_MQTT_STRING_LENGTH] = {0};
+char gps_csv_string[GPS_CSV_STRING_LENGTH] = {0}; 
+
 uint32_t update_server_ip32 = 0;
 char update_server_name[32] = {0};
 unsigned long integrity_num_bytes_total = 0;
@@ -63,6 +71,10 @@ float reported_humidity_offset_percent = 0.0f;
 float temperature_degc = 0.0f;
 float relative_humidity_percent = 0.0f;
 float pm_micrograms_per_cubic_meter = 0.0f;
+float gps_latitude = TinyGPS::GPS_INVALID_F_ANGLE;
+float gps_longitude = TinyGPS::GPS_INVALID_F_ANGLE;
+float gps_altitude = TinyGPS::GPS_INVALID_F_ALTITUDE;
+unsigned long gps_age = TinyGPS::GPS_INVALID_AGE;
 
 #define MAX_SAMPLE_BUFFER_DEPTH (240) // 20 minutes @ 5 second resolution
 #define PM_SAMPLE_BUFFER         (0)
@@ -657,6 +669,16 @@ void setup() {
 void loop() {
   current_millis = millis();
 
+  // whenever you come through loop, process a GPS byte if there is one
+  // will need to test if this keeps up, but I think it will
+  if(gpsSerial->available()){    
+    if(gps.encode(gpsSerial->read())){    
+      gps.f_get_position(&gps_latitude, &gps_longitude, &gps_age);
+      gps_altitude = gps.f_altitude();
+      updateGpsStrings();
+    }
+  }
+
   if(current_millis - previous_sensor_sampling_millis >= sampling_interval){
     previous_sensor_sampling_millis = current_millis;    
     Serial.print(F("Info: Sampling Sensors @ "));
@@ -714,6 +736,9 @@ void init_firmware_version(void){
 void initializeHardware(void) {
   wf.begin();
   Serial.begin(115200);
+
+  // gps serial is 9600 baud
+  Serial1.begin(9600); // remember must be consistent with global gpsSerial defintion
 
   init_firmware_version();
   
@@ -4168,7 +4193,8 @@ boolean publishTemperature(){
     "\"raw-value\":%s,"
     "\"raw-units\":\"deg%c\","
     "\"sensor-part-number\":\"SHT25\""
-    "}", mqtt_client_id, converted_value_string, temperature_units, raw_value_string, temperature_units);
+    "%s"
+    "}", mqtt_client_id, converted_value_string, temperature_units, raw_value_string, temperature_units, gps_mqtt_string);
     
   return mqttPublish(MQTT_TOPIC_PREFIX "temperature", scratch);
 }
@@ -4192,7 +4218,8 @@ boolean publishHumidity(){
     "\"raw-value\":%s,"
     "\"raw-units\":\"percent\","  
     "\"sensor-part-number\":\"SHT25\""
-    "}", mqtt_client_id, converted_value_string, raw_value_string);  
+    "%s"
+    "}", mqtt_client_id, converted_value_string, raw_value_string, gps_mqtt_string);  
   return mqttPublish(MQTT_TOPIC_PREFIX "humidity", scratch);
 }
 
@@ -4378,11 +4405,13 @@ boolean publishPM(){
     "\"converted-units\":\"ug/m^3\","
     "\"compensated-value\":%s,"
     "\"sensor-part-number\":\"PPD60PV-T2\""
+    "%s"
     "}",
     mqtt_client_id,
     raw_value_string, 
     converted_value_string, 
-    compensated_value_string);  
+    compensated_value_string,
+    gps_mqtt_string);  
   return mqttPublish(MQTT_TOPIC_PREFIX "particulate", scratch);     
 }
 
@@ -4576,7 +4605,10 @@ void printCsvDataLine(const char * augmented_header){
                    "Temperature[degC],"
                    "Humidity[percent],"                   
                    "PM[ug/m^3],"                    
-                   "PM[V]";        
+                   "PM[V],"
+                   "Latitude[deg],"
+                   "Longitude[deg],"
+                   "Altitude[m],";        
     first = false;      
     Serial.print(F("csv: "));    
     Serial.print(header_row);
@@ -4649,7 +4681,40 @@ void printCsvDataLine(const char * augmented_header){
   
   Serial.print(pm_moving_average, 3);
   appendToString(pm_moving_average, 3, dataString, &dataStringRemaining);
-  
+
+  Serial.print(F(","));
+  appendToString("," , dataString, &dataStringRemaining);
+
+  if(gps_latitude != TinyGPS::GPS_INVALID_F_ANGLE){
+    Serial.print(gps_latitude, 6);
+  }
+  else{
+    Serial.print(F("---"));
+  }
+  appendToString(gps_latitude, 6, dataString, &dataStringRemaining);
+
+  Serial.print(F(","));
+  appendToString("," , dataString, &dataStringRemaining);
+
+  if(gps_longitude != TinyGPS::GPS_INVALID_F_ANGLE){
+    Serial.print(gps_longitude, 6);
+  }
+  else{
+    Serial.print(F("---"));
+  }
+  appendToString(gps_longitude, 6, dataString, &dataStringRemaining);
+
+  Serial.print(F(","));
+  appendToString("," , dataString, &dataStringRemaining);
+
+  if(gps_altitude != TinyGPS::GPS_INVALID_F_ALTITUDE){
+    Serial.print(gps_altitude, 6);
+  }
+  else{
+    Serial.print(F("---"));
+  }
+  appendToString(gps_altitude, 2, dataString, &dataStringRemaining);
+        
   if((mode == SUBMODE_OFFLINE) && init_sdcard_ok){
     char filename[16] = {0};
     getNowFilename(filename, 15);     
@@ -5264,6 +5329,30 @@ void rtcClearOscillatorStopFlag(void){
     Wire.write((uint8_t) sreg);
     Wire.endTransmission();    
 }
+
+/****** GPS SUPPORT FUNCTIONS ******/
+void updateGpsStrings(void){
+  const char * gps_lat_lng_field_mqtt_template = ",\"latitude\":%10.6f,\"longitude\":%11.6f";
+  const char * gps_lat_lng_alt_field_mqtt_template  = ",\"latitude\":%10.6f,\"longitude\":%11.6f,\"altitude\":%8.2f"; 
+  const char * gps_lat_lng_field_csv_template = ",%10.6f,%11.6f,---";
+  const char * gps_lat_lng_alt_field_csv_template  = ",%10.6f,%11.6f,%8.2f";   
+  
+  memset(gps_mqtt_string, 0, GPS_MQTT_STRING_LENGTH);
+  memset(gps_csv_string, 0, GPS_CSV_STRING_LENGTH);
+  strcpy_P(gps_csv_string, PSTR(",---,---,---"));
+  
+  if((gps_latitude != TinyGPS::GPS_INVALID_F_ANGLE) && (gps_longitude != TinyGPS::GPS_INVALID_F_ANGLE)){
+    if(gps_altitude != TinyGPS::GPS_INVALID_F_ALTITUDE){
+      snprintf(gps_mqtt_string, GPS_MQTT_STRING_LENGTH-1, gps_lat_lng_alt_field_mqtt_template, gps_latitude, gps_longitude, gps_altitude);
+      snprintf(gps_csv_string, GPS_CSV_STRING_LENGTH-1, gps_lat_lng_alt_field_csv_template, gps_latitude, gps_longitude, gps_altitude);
+    }
+    else{
+      snprintf(gps_mqtt_string, GPS_MQTT_STRING_LENGTH-1, gps_lat_lng_field_mqtt_template, gps_latitude, gps_longitude);
+      snprintf(gps_csv_string, GPS_CSV_STRING_LENGTH-1, gps_lat_lng_field_csv_template, gps_latitude, gps_longitude);
+    }    
+  }
+}
+
 
 /*
 void dump_config(uint8_t * buf){    
