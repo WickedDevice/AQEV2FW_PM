@@ -11,8 +11,6 @@ Upstream Repository: https://github.com/WickedDevice/AQEV2FW.git
 * https://github.com/WickedDevice/WildFire_CC3000_Library
 * https://github.com/WickedDevice/WildFire_CC3000_MDNS
 * https://github.com/WickedDevice/TinyWatchdog
-* https://github.com/WickedDevice/LMP91000
-* https://github.com/stevemarple/MCP342x
 * https://github.com/WickedDevice/SHT25
 * https://github.com/WickedDevice/WildFire_SPIFlash
 * https://github.com/knolleary/pubsubclient
