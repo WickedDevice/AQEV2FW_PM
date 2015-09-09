@@ -4675,50 +4675,63 @@ void printCsvDataLine(const char * augmented_header){
     pm_micrograms_per_cubic_meter = compensated_value;      
     Serial.print(pm_micrograms_per_cubic_meter, 2);
     appendToString(pm_micrograms_per_cubic_meter, 2, dataString, &dataStringRemaining);
+    
+    Serial.print(F(","));
+    appendToString("," , dataString, &dataStringRemaining);    
+    
+    Serial.print(pm_moving_average, 3);
+    appendToString(pm_moving_average, 3, dataString, &dataStringRemaining);    
   }
   else{
-    Serial.print(F("---"));
-    appendToString("---", dataString, &dataStringRemaining);
+    Serial.print(F("---,---"));
+    appendToString("---,---", dataString, &dataStringRemaining);
   }
-  
-  Serial.print(F(","));
-  appendToString("," , dataString, &dataStringRemaining);
-  
-  Serial.print(pm_moving_average, 3);
-  appendToString(pm_moving_average, 3, dataString, &dataStringRemaining);
 
   Serial.print(F(","));
   appendToString("," , dataString, &dataStringRemaining);
 
   if(gps_latitude != TinyGPS::GPS_INVALID_F_ANGLE){
     Serial.print(gps_latitude, 6);
+    appendToString(gps_latitude, 6, dataString, &dataStringRemaining);
   }
   else{
     Serial.print(F("---"));
+    appendToString("---", dataString, &dataStringRemaining);
   }
-  appendToString(gps_latitude, 6, dataString, &dataStringRemaining);
+  
 
   Serial.print(F(","));
   appendToString("," , dataString, &dataStringRemaining);
 
   if(gps_longitude != TinyGPS::GPS_INVALID_F_ANGLE){
     Serial.print(gps_longitude, 6);
+    appendToString(gps_longitude, 6, dataString, &dataStringRemaining);
   }
   else{
     Serial.print(F("---"));
-  }
-  appendToString(gps_longitude, 6, dataString, &dataStringRemaining);
+    appendToString("---", dataString, &dataStringRemaining);
+  }  
 
   Serial.print(F(","));
   appendToString("," , dataString, &dataStringRemaining);
 
   if(gps_altitude != TinyGPS::GPS_INVALID_F_ALTITUDE){
     Serial.print(gps_altitude, 6);
+    appendToString(gps_altitude, 2, dataString, &dataStringRemaining);
   }
   else{
     Serial.print(F("---"));
+    appendToString("---", dataString, &dataStringRemaining);
   }
-  appendToString(gps_altitude, 2, dataString, &dataStringRemaining);
+
+  if(augmented_header != 0){
+    Serial.print(F(","));
+    appendToString("," , dataString, &dataStringRemaining);
+  }
+  else{
+    Serial.println();
+    appendToString("\n", dataString, &dataStringRemaining);  
+  }
         
   if((mode == SUBMODE_OFFLINE) && init_sdcard_ok){
     char filename[16] = {0};
