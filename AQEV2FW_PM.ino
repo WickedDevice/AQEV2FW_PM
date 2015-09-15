@@ -1240,7 +1240,7 @@ void help_menu(char * arg) {
       Serial.println(F("                   performs 'mqttport 1883'"));           
       Serial.println(F("                   performs 'mqttauth enable'"));        
       Serial.println(F("                   performs 'mqttuser wickeddevice'"));  
-      Serial.println(F("                   performs 'sampling 5, 160, 5'"));
+      Serial.println(F("                   performs 'sampling 5, 30, 5'"));
       Serial.println(F("                   performs 'restore temp_off'"));      
       Serial.println(F("                   performs 'restore hum_off'"));          
       Serial.println(F("                   performs 'restore mac'"));
@@ -2013,7 +2013,7 @@ void restore(char * arg) {
     configInject("mqttport 1883\r");        
     configInject("mqttauth enable\r");    
     configInject("mqttuser wickeddevice\r");
-    configInject("sampling 5, 160, 5\r");   
+    configInject("sampling 5, 30, 5\r");   
     configInject("restore temp_off\r");
     configInject("restore hum_off\r");       
     configInject("restore mqttpwd\r");
@@ -4448,10 +4448,13 @@ void watchdogInitialize(void){
 void loop_wifi_mqtt_mode(void){
   static uint8_t num_mqtt_connect_retries = 0;
   static uint8_t num_mqtt_intervals_without_wifi = 0; 
+  static uint8_t num_mqtt_publish_intervals_with_failure = 0;
   
   // mqtt publish timer intervals
   static unsigned long previous_mqtt_publish_millis = 0;
-  
+
+  boolean publish_tried_and_failed_at_least_once = false;
+    
   if(current_millis - previous_mqtt_publish_millis >= reporting_interval){   
     previous_mqtt_publish_millis = current_millis;      
     
@@ -4469,12 +4472,14 @@ void loop_wifi_mqtt_mode(void){
         num_mqtt_connect_retries = 0;   
         if(!publishHeartbeat()){
           Serial.println(F("Error: Failed to publish Heartbeat."));  
+          publish_tried_and_failed_at_least_once = true;
         }
         
         if(init_sht25_ok){
           if(temperature_ready){
             if(!publishTemperature()){          
-              Serial.println(F("Error: Failed to publish Temperature."));          
+              Serial.println(F("Error: Failed to publish Temperature."));    
+              publish_tried_and_failed_at_least_once = true;      
             }
             else{
               float reported_temperature = temperature_degc - reported_temperature_offset_degC;
@@ -4496,7 +4501,8 @@ void loop_wifi_mqtt_mode(void){
         if(init_sht25_ok){
           if(humidity_ready){
             if(!publishHumidity()){
-              Serial.println(F("Error: Failed to publish Humidity."));         
+              Serial.println(F("Error: Failed to publish Humidity."));  
+              publish_tried_and_failed_at_least_once = true;         
             }
             else{
               float reported_relative_humidity_percent = relative_humidity_percent - reported_humidity_offset_percent;
@@ -4514,7 +4520,8 @@ void loop_wifi_mqtt_mode(void){
         
         if(pm_ready){
           if(!publishPM()){
-            Serial.println(F("Error: Failed to publish PM."));          
+            Serial.println(F("Error: Failed to publish PM."));        
+            publish_tried_and_failed_at_least_once = true;    
           }
           else{
             updateLCD(pm_micrograms_per_cubic_meter, 5, 1, 3);  
@@ -4523,7 +4530,21 @@ void loop_wifi_mqtt_mode(void){
         else{
           updateLCD("---", 5, 1, 3); 
         }    
-            
+
+
+        // what happens if MQTT publish fails?
+        if(publish_tried_and_failed_at_least_once){
+          num_mqtt_publish_intervals_with_failure++;
+        }
+        else{
+          num_mqtt_publish_intervals_with_failure = 0;
+        }
+
+        if(num_mqtt_publish_intervals_with_failure >= 2){
+          Serial.println(F("Error: MQTT is acting unreliable. Resetting."));
+          watchdogForceReset();  
+        }
+        
       }
       else{
         // not connected to MQTT server
