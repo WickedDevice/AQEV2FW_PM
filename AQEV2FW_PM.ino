@@ -1786,10 +1786,13 @@ void print_eeprom_value(char * arg) {
   }
   else if (strncmp(arg, "temp_off", 8) == 0) {
     print_eeprom_float((const float *) EEPROM_TEMPERATURE_OFFSET);
-  }
+  }  
   else if (strncmp(arg, "hum_off", 7) == 0) {
     print_eeprom_float((const float *) EEPROM_HUMIDITY_OFFSET);
-  }  
+  }
+  else if (strncmp(arg, "pm_off", 6) == 0) {
+    print_eeprom_float((const float *) EEPROM_PM_CAL_OFFSET);
+  }    
   else if(strncmp(arg, "mqttsrv", 7) == 0) {
     print_eeprom_string((const char *) EEPROM_MQTT_SERVER_NAME);    
   }
