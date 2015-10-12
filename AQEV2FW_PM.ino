@@ -1429,8 +1429,8 @@ void help_menu(char * arg) {
       Serial.println(F("opmode <mode>"));
       Serial.println(F("   <mode> is one of:"));
       Serial.println(F("      normal - publish data to MQTT server over Wi-Fi"));
-      Serial.println(F("      offline - this mode writes data to an installed microSD card, creating one file per day, "));
-      Serial.println(F("                named by convention YYYYMMDD.csv, intended to be used in conjunction with RTC module"));
+      Serial.println(F("      offline - this mode writes data to an installed microSD card, creating one file per hour, "));
+      Serial.println(F("                named by convention YYMMDDHH.csv, intended to be used in conjunction with RTC module"));
     }    
     else if (strncmp("tempunit", arg, 8) == 0) {
       Serial.println(F("tempunit <unit>"));
