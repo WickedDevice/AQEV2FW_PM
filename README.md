@@ -20,3 +20,4 @@ Upstream Repository: https://github.com/WickedDevice/AQEV2FW.git
 * https://github.com/arduino-libraries/LiquidCrystal
 * https://github.com/greiman/SdFat/
 * https://github.com/mizraith/RTClib
+* https://github.com/mikalhart/TinyGPS
